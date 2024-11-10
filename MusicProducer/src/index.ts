@@ -109,11 +109,11 @@ const MusicProducerToolboxConfig: ToolboxConfig = {
   name: "Music Producer / Music Video Producer Tool Box",
   description: "Complete tool box for analyzing music and creating music video descriptions",
   tools: [
-    "create a music video", "check for progress", "display all images"
+    "create a music video", "check for progress", "display all images", "stop music video generation", "setup"
   ],
   metadata: {
     complexity: "High",
-    applicableFields: ["Music", "Generative Music Video", "Recommending Music"]
+    applicableFields: ["Music", "Generative Music Video", "Recommending Music", "setup", "Stop Music Video Generation"],
   },
   recommendedPrompt: `
 Use the following Workflow for Music Analysis and Music Recommendations: 
@@ -284,6 +284,103 @@ const displayAllImages: ToolConfig = {
   },
 };
 
+const stopMusicVideoGeneration: ToolConfig = {
+  id: "stop-music-video-generation",
+  name: "Stop Music Video Generation",
+  description: "Stop the music video generation process",
+  input: z
+    .object({})
+    .describe("Stop the music video generation process"),
+  output: z
+    .any()
+    .describe("Stop the music video generation process"),
+  pricing: { pricePerUse: 0, currency: "USD" },
+  handler: async ({ }, agentInfo) => {
+    console.log(
+      `User / Agent ${agentInfo.id} requested to stop the music video generation process`
+    );
+
+    let config = {
+      method: 'get',
+      maxBodyLength: Infinity,
+      url: `${backend_url}/reset`,
+      headers: {}
+    };
+
+    const res = await axios(config);
+
+    return {
+      text: `The music video generation process has been stopped`,
+      data: {
+        Status: "Stopped"
+      },
+      ui: {
+        type: "alert",
+        uiData: JSON.stringify({
+          type: "success",
+          title: "Music Video Generation",
+          message: `We have stopped the music video generation process`,
+          icon: true  // Optional, defaults to true
+        })
+      }
+    };
+  },
+};
+
+// accept a link from the user
+const setup: ToolConfig = {
+  id: "setup",
+  name: "Setup",
+  description: "Setup the music video generation process",
+  input: z
+    .object({
+      link: z.string().describe("Input a URL for setting up the service"),
+    })
+    .describe("Input parameters for the music analysis"),
+  output: z
+    .any()
+    .describe("success message"),
+  pricing: { pricePerUse: 0, currency: "USD" },
+  handler: async ({ link }, agentInfo) => {
+    console.log(
+      `User / Agent ${agentInfo.id} requested music tag analysis for ${link}`
+    );
+
+    let data = JSON.stringify({
+      "url": link
+    });
+    
+    let config = {
+      method: 'post',
+      maxBodyLength: Infinity,
+      url: `${backend_url}/set_image_generation_url`,
+      headers: { 
+        'Content-Type': 'application/json'
+      },
+      data : data
+    };
+
+    await axios(config);
+
+    return {
+      text: `The music video generation process has been setup`,
+      data: {
+        Status: "Setup"
+      },
+      ui: {
+        type: "alert",
+        uiData: JSON.stringify({
+          type: "success",
+          title: "Music Video Generation",
+          message: `We have setup the music video generation process`,
+          icon: true  // Optional, defaults to true
+        })
+      }
+    };
+  },
+};
+
+
 const dainService = defineDAINService({
   metadata: {
     title: "Music Analysis",
@@ -298,7 +395,7 @@ const dainService = defineDAINService({
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [generateMusicVideo, checkForPorgress, displayAllImages],
+  tools: [generateMusicVideo, checkForPorgress, displayAllImages, stopMusicVideoGeneration, setup],
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
