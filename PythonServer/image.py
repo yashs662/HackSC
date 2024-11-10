@@ -1,19 +1,27 @@
-from flask import Flask, request, send_file, render_template_string
+from flask import Flask, request, jsonify, render_template_string
 from pyngrok import ngrok
 from diffusers import DiffusionPipeline
+from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer
 import torch
 from PIL import Image
 import io
+import base64
 
 app = Flask(__name__)
 
 # Initialize the Stable Diffusion pipeline
-pipeline = DiffusionPipeline.from_pretrained(
+sd_pipeline = DiffusionPipeline.from_pretrained(
     "stabilityai/stable-diffusion-3-medium-diffusers",
     torch_dtype=torch.float16
 )
-pipeline.to("cuda")  # Use "cpu" if CUDA is not available
-pipeline.enable_sequential_cpu_offload()
+sd_pipeline.to("cuda" if torch.cuda.is_available() else "cpu")
+sd_pipeline.enable_sequential_cpu_offload()
+
+# Initialize the ViT-GPT2 image captioning model
+caption_model = VisionEncoderDecoderModel.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+feature_extractor = ViTImageProcessor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+tokenizer = AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
+caption_model.to("cuda" if torch.cuda.is_available() else "cpu")
 
 # HTML template for the web interface
 html_template = '''
@@ -30,10 +38,6 @@ html_template = '''
         <input type="text" id="prompt" name="prompt" required><br><br>
         <input type="submit" value="Generate Image">
     </form>
-    {% if image_url %}
-    <h2>Generated Image:</h2>
-    <img src="{{ image_url }}" alt="Generated Image">
-    {% endif %}
 </body>
 </html>
 '''
@@ -46,23 +50,31 @@ def home():
 def generate():
     prompt = request.json.get('prompt')
     if not prompt:
-        return "Please provide a prompt.", 400
+        return jsonify({"error": "Please provide a prompt."}), 400
 
     # Generate the image
-    with torch.autocast("cuda"):
-        image = pipeline(prompt).images[0]
+    with torch.autocast("cuda" if torch.cuda.is_available() else "cpu"):
+        image = sd_pipeline(prompt).images[0]
 
-    # Save image to a BytesIO object
-    img_io = io.BytesIO()
-    image.save(img_io, 'PNG')
-    img_io.seek(0)
+    # Caption the image
+    image_for_caption = image.convert("RGB")
+    pixel_values = feature_extractor(images=image_for_caption, return_tensors="pt").pixel_values
+    pixel_values = pixel_values.to("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Serve the image
-    return send_file(img_io, mimetype='image/png')
+    output_ids = caption_model.generate(pixel_values, max_length=16, num_beams=4)
+    caption = tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
+
+    # Convert image to base64
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+    # Return JSON response
+    return jsonify({"image": img_str, "caption": caption})
 
 if __name__ == '__main__':
     # Set ngrok authtoken
-    ngrok.set_auth_token("ngrok authtoken")
+    ngrok.set_auth_token("YOUR_NGROK_AUTH_TOKEN")
 
     # Open an HTTP tunnel on the default port 5000
     public_url = ngrok.connect(5000)
