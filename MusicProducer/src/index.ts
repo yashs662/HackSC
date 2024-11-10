@@ -14,20 +14,20 @@ const MusicProducerToolboxConfig: ToolboxConfig = {
   name: "Music Producer / Music Video Producer Tool Box",
   description: "Complete tool box for analyzing music and creating music video descriptions",
   tools: [
-    "give-simular-music-recommendations", "get-music-tags", 
+    "give-similar-music-recommendations", "get-music-tags", 
   ],
   metadata: {
     complexity: "High",
     applicableFields: ["Music", "Generative Music Video", "Recommending Music"]
   },
   recommendedPrompt: `
-Use the following Workflow for Music Analysis and Musc Recommendations: 
+Use the following Workflow for Music Analysis and Music Recommendations: 
 
 
 Music Recommendations:
 Use give-similar-music-recommendations to find music based on genres, artists, or moods that the user enjoys.
 Enter known artists or genres the user likes.
-Confirm the user’s preferences before generating music suggestions.
+Confirm the user's preferences before generating music suggestions.
 Music Tagging (Audio Analysis):
 
 Use get-music-tags to analyze music from a .wav file.
@@ -55,9 +55,9 @@ Deliver the final outputs, ensuring the user is satisfied with all aspects of th
 
 //Display Images //Give Link to Images
 const giveMusicRecommendations: ToolConfig = {
-  id: "give-simular-music-recommendations",
+  id: "give-similar-music-recommendations",
   name: "give me music recommendations",
-  description: "Gives music recommendations of genres, artists, and moods simular ones previously mentioned",
+  description: "Gives music recommendations of genres, artists, and moods similar ones previously mentioned",
   input: z
     .object({
       user_known_artists: z.string().describe("Enter music artists or genres you enjoy to listen to.")
@@ -78,7 +78,7 @@ const giveMusicRecommendations: ToolConfig = {
     //const tags = "Bees, Hive Music, Silly, Whimsical";
   //for the first time period the music is {tempo, key, energy, type of song, timbre}
     return {
-      text: `Return Music artists simular in genre and theme to ${user_known_artists}`,
+      text: `Return Music artists similar in genre and theme to ${user_known_artists}`,
       data: { },
       ui: {  }
     };
@@ -100,7 +100,7 @@ const getMusicTagsFromWav: ToolConfig = {
   pricing: { pricePerUse: 0, currency: "USD" },
   handler: async ({ WAVFile, Title }, agentInfo) => {
     console.log(
-      `User / Agent ${agentInfo.id} requested music tag analsysis for ${WAVFile} and ${Title}`
+      `User / Agent ${agentInfo.id} requested music tag analysis for ${WAVFile} and ${Title}`
     );
     // Local AI prompting goes here
    const analysis = "Prompt for segment 180.0-190.0s:,Tempo: moderately paced, relaxed - 86.1328125 BPM, Key F - bright and uplifting overtones. Energy energy 0.3415415585041046 - steady, balanced rhythms vibe. The timbre is spectral centroid 2457.8464735763346 - warm and balanced spectral rolloff 5137.135194562899 - with high, piercing frequencies spectral bandwith 3214.8297814488824 - with a rough, textured feel.Lyrics: I said, ooh, I'm blinded by the light"
@@ -108,7 +108,7 @@ const getMusicTagsFromWav: ToolConfig = {
     //const tags = "Bees, Hive Music, Silly, Whimsical";
   //for the first time period the music is {tempo, key, energy, type of song, timbre}
     return {
-      text: `Make a descriptive and enviromental beatufiul sentance about song, ${Title}, without repeating words in ${analysis}`,
+      text: `Make a descriptive and environmental beautiful sentence about song, ${Title}, without repeating words in ${analysis}`,
       data: {
         Tags : analysis
       },
@@ -161,7 +161,7 @@ const displayImageForMusicFile: ToolConfig = {
     .object({
       //WAVFile : z.string().describe("Input a URL for a .wav file of the music you want analyzed."),
       Title: z.string().describe("Enter the title of the music piece (this may be different than that of the .wav file)."),
-      //Tags : z.string().describe("Words seperated by commas to describe musics when combined.")
+      //Tags : z.string().describe("Words separated by commas to describe musics when combined.")
     })
     .describe("Input parameters for Image generation"),
   output: z
