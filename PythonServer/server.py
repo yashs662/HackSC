@@ -9,6 +9,7 @@ from transformers import pipeline
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
+from pprint import pprint
 
 app = Flask(__name__)
 NUM_WORKERS = 1
@@ -16,7 +17,7 @@ executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
 lock = threading.Lock()
 chunk_status = {}
 image_generation_url = ""
-SEGMENT_DURATION = 20  # seconds
+SEGMENT_DURATION = 30  # seconds
 total_chunks = 0
 
 
@@ -113,53 +114,45 @@ def create_prompt(
 
     # Energy
     if energy < 0.1:
-        energy_desc = f"energy {energy} - soft, mellow tones"
+        energy_desc = "soft, mellow tones"
     elif 0.1 <= energy < 0.5:
-        energy_desc = f"energy {energy} - steady, balanced rhythms"
+        energy_desc = "steady, balanced rhythms"
     else:
-        energy_desc = f"energy {energy} - intense, powerful vibrations"
+        energy_desc = "intense, powerful vibrations"
 
     # Timbre based on spectral features
     spectral_centroid, spectral_rolloff, spectral_bandwidth = spectral_features
     if spectral_centroid < 1000:
-        timbre_desc = f"spectral centroid {spectral_centroid} - dark and resonant"
+        timbre_desc = "dark and resonant timbre"
     elif spectral_centroid < 3000:
-        timbre_desc = f"spectral centroid {spectral_centroid} - warm and balanced"
+        timbre_desc = "warm and balanced timbre"
     else:
-        timbre_desc = f"spectral centroid {spectral_centroid} - bright and sharp"
+        timbre_desc = "bright and sharp timbre"
 
-    if spectral_rolloff < 0.85:
-        timbre_desc += " with low, mellow frequencies"
-    else:
-        timbre_desc += " with high, piercing frequencies"
+    timbre_desc += " with "
+    timbre_desc += "low, mellow frequencies" if spectral_rolloff < 0.85 else "high, piercing frequencies"
+    timbre_desc += " and "
+    timbre_desc += "smooth texture" if spectral_bandwidth < 1500 else "rough, textured feel"
 
-    if spectral_bandwidth < 1500:
-        timbre_desc += " and a smooth texture"
-    else:
-        timbre_desc += " with a rough, textured feel"
-
-    # Optional link to the previous image's caption for story continuity
-    link_to_previous = (
-        f"Building from the last scene: '{previous_caption}', "
-        if previous_caption
-        else ""
-    )
+    # Optional continuity from previous frame
+    link_to_previous = f"Continuing from the last scene: '{previous_caption}', " if previous_caption else ""
 
     # Optional user style
-    style_desc = (
-        f"in a style inspired by {user_style}"
-        if user_style
-        else "in a cinematic and expressive style"
-    )
+    style_desc = f"inspired by {user_style}" if user_style else "cinematic and expressive"
 
     # Construct the prompt
     prompt = (
         f"{link_to_previous}Frame {current_image_index + 1} of {num_images}: "
-        f"depicting a scene inspired by the lyrics: '{current_segment_lyrics}'. "
-        f"The mood is {tempo_desc}, {key_desc}, {energy_desc}, and the timbre has {timbre_desc}. "
-        f"Render this scene {style_desc}. Each frame captures the essence of the song's journey, "
-        f"with visuals that reflect the music's mood and intensity."
-        f"The entire song lyrics are: {lyrics}"
+        f"Create a scene inspired by the lyrics: '{current_segment_lyrics}'. "
+        f"The mood is {tempo_desc}, with a {key_desc}, showing {energy_desc}, and a {timbre_desc}. "
+        f"This frame should be rendered {style_desc}. "
+        f"Imagine vivid visuals that capture the essence of the song’s journey. "
+        f"Consider lighting, colors, and emotion that fit this part of the music."
+        f"reduce this prompts length while emphasizing on the lyrics and the mood of the current segment "
+        f"lyrics while using all the lyrics to create a visual representation of the song try to be very "
+        f"expressive in nature and use quite a lot of colors and lighting to make the image pop with the "
+        f"lyrics and the mood of the song. make sure the current prompt is related but not entirely similar to previous prompts/captions "
+        f"You cannot exceed more than 60 words in this prompt. Make it concise and expressive."
     )
 
     return prompt
@@ -225,17 +218,17 @@ def generate_chunks(audio_file, folder_name, segment_duration=SEGMENT_DURATION):
 def process_chunk(
     audio_file, folder_name, entire_lyrics, chunk_index, segment_duration, num_chunks
 ):
-    print(f"Processing chunk {chunk_index}...")
+    print(f"Processing chunk {chunk_index + 1}...")
     start_time = chunk_index * segment_duration
     end_time = start_time + segment_duration
     lyrics = model(f"{folder_name}/chunk_{chunk_index}.wav")["text"]
 
-    print(f"Lyrics for chunk {chunk_index}: {lyrics}")
+    print(f"Lyrics for chunk {chunk_index + 1}: {lyrics}")
 
     # check if the lyrics generated are actually something if errored out it genrates something like ស្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្, basically a bunch of gibberish non alphabet or punctuation based characters
     if not check_if_valid_lyrics(lyrics):
         print(
-            f"Error processing chunk {chunk_index}, Invalid lyrics generated. Generated lyrics: {lyrics}"
+            f"Error processing chunk {chunk_index + 1}, Invalid lyrics generated. Generated lyrics: {lyrics}"
         )
         lyrics = "No lyrics in this section of the song."
 
@@ -277,6 +270,8 @@ def process_chunk(
             previous_caption,
         )
 
+    print(f"Prompt for chunk {chunk_index + 1}: {prompt}")
+
     print("Generating image...")
     encoded_image, caption = generate_image(prompt, chunk_index)
 
@@ -287,10 +282,11 @@ def process_chunk(
             "image": encoded_image,
             "caption": caption,
         }
-    print(f"Chunk {chunk_index} processed.")
+    print(f"Chunk {chunk_index + 1} processed.")
 
 
 def check_if_valid_lyrics(lyrics):
+    return True
     eng_alphabet = "abcdefghijklmnopqrstuvwxyz"
     numbers = "0123456789"
     punctuation = ".,?!' "
@@ -311,11 +307,11 @@ def generate_image(prompt, chunk_index):
 
     encoded_image = json_response.get("image")
     if not encoded_image:
-        print(f"Error processing chunk {chunk_index}: {json_response}")
+        print(f"Error processing chunk {chunk_index + 1}: {json_response}")
         return
 
     caption = json_response.get("caption")
-    print(f"Caption for chunk {chunk_index}: {caption}")
+    print(f"Caption for chunk {chunk_index + 1}: {caption}")
     return encoded_image, caption
 
 
@@ -374,13 +370,17 @@ def process_audio():
             num_chunks,
         )
 
-    return jsonify(
+    return_str = jsonify(
         {
             "message": "Audio processing started, please use the check progress command to check the status",
             "num_chunks": num_chunks,
             "song_lyrics": entire_lyrics,
         }
     )
+
+    pprint(chunk_status)
+
+    return return_str
 
 
 @app.route("/reset_chunks", methods=["POST"])

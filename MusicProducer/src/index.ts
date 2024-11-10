@@ -17,7 +17,7 @@ import { UTApi } from "uploadthing/server";
 
 var generated_chunks = [];
 var num_chunks = 0;
-const backend_url = "https://adde-76-33-234-133.ngrok-free.app"
+const backend_url = "https://77fd-76-33-234-133.ngrok-free.app"
 
 // a token is { apiKey: string, appId: string, regions: string[] } base64 encoded
 const apiKey = "sk_live_a010c50c9538477356398d7df64188ed7659c296596c9b2caddbfbaeed8db505";
@@ -109,7 +109,7 @@ const MusicProducerToolboxConfig: ToolboxConfig = {
   name: "Music Producer / Music Video Producer Tool Box",
   description: "Complete tool box for analyzing music and creating music video descriptions",
   tools: [
-    "create a music video", "check for progress", "display all images", "stop music video generation", "setup"
+    "create a music video", "check for progress", "display current progress", "stop music video generation", "setup"
   ],
   metadata: {
     complexity: "High",
@@ -183,7 +183,7 @@ const generateMusicVideo: ToolConfig = {
     const img_gen_response = await axios(config);
     const analysis = img_gen_response.data;
 
-    num_chunks = analysis.first_chunk_prompt.num_chunks;
+    num_chunks = analysis.num_chunks;
 
     return {
       text: `Make a descriptive and environmental beautiful sentence about song, make the user aware that other images are being generated in the background, without repeating words in ${analysis}`,
@@ -219,7 +219,7 @@ const checkForPorgress: ToolConfig = {
       `User / Agent ${agentInfo.id} requested to check how many chunks are left to generate`
     );
 
-    fetchChunks();
+    await fetchChunks();
 
     console.log(`Generated Chunks: ${generated_chunks.length}, Total Chunks: ${num_chunks}`);
 
@@ -241,16 +241,16 @@ const checkForPorgress: ToolConfig = {
   },
 };
 
-const displayAllImages: ToolConfig = {
-  id: "display-all-images",
-  name: "Display all images",
-  description: "Display all images generated",
+const displayCurrentProgress: ToolConfig = {
+  id: "display-current-progress",
+  name: "Display Current Progress",
+  description: "Display current progress of the music video generation",
   input: z
     .object({})
-    .describe("Display all images generated"),
+    .describe("Display all images generated till now"),
   output: z
     .any()
-    .describe("Show All images generated"),
+    .describe("Show all images generated till now"),
   pricing: { pricePerUse: 0, currency: "USD" },
   handler: async ({ }, agentInfo) => {
     console.log(
@@ -267,10 +267,8 @@ const displayAllImages: ToolConfig = {
     }
 
     return {
-      text: `Here are all the images generated`,
-      data: {
-        Images: images
-      },
+      text: `Okay`,
+      data: {},
       ui: {
         type: "imageGallery",
         uiData: JSON.stringify({
@@ -301,7 +299,7 @@ const stopMusicVideoGeneration: ToolConfig = {
     );
 
     let config = {
-      method: 'get',
+      method: 'post',
       maxBodyLength: Infinity,
       url: `${backend_url}/reset`,
       headers: {}
@@ -395,7 +393,7 @@ const dainService = defineDAINService({
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [generateMusicVideo, checkForPorgress, displayAllImages, stopMusicVideoGeneration, setup],
+  tools: [generateMusicVideo, checkForPorgress, displayCurrentProgress, stopMusicVideoGeneration, setup],
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
