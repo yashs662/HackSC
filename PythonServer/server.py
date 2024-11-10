@@ -8,6 +8,7 @@ import soundfile as sf
 from transformers import pipeline
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import time
 
 app = Flask(__name__)
 NUM_WORKERS = 1
@@ -15,6 +16,7 @@ executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
 lock = threading.Lock()
 chunk_status = {}
 image_generation_url = ""
+SEGMENT_DURATION = 20  # seconds
 
 
 # Function to download the audio file from the provided URL
@@ -163,7 +165,9 @@ def create_prompt(
 
 
 # Function to generate multiple prompts for the song
-def generate_prompts_for_segments(audio_file, folder_name, segment_duration=10):
+def generate_prompts_for_segments(
+    audio_file, folder_name, segment_duration=SEGMENT_DURATION
+):
     # Load the full song to determine its length
     y, sr = librosa.load(audio_file)
     song_length = librosa.get_duration(y=y, sr=sr)
@@ -191,7 +195,7 @@ def generate_prompts_for_segments(audio_file, folder_name, segment_duration=10):
     return prompts
 
 
-def generate_chunks(audio_file, folder_name, segment_duration=10):
+def generate_chunks(audio_file, folder_name, segment_duration=SEGMENT_DURATION):
     print("Generating chunks...")
     # Load the full song to determine its length
     y, sr = librosa.load(audio_file)
@@ -225,9 +229,13 @@ def process_chunk(
     end_time = start_time + segment_duration
     lyrics = model(f"{folder_name}/chunk_{chunk_index}.wav")["text"]
 
+    print(f"Lyrics for chunk {chunk_index}: {lyrics}")
+
     # check if the lyrics generated are actually something if errored out it genrates something like ស្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្, basically a bunch of gibberish non alphabet or punctuation based characters
-    if not any(char.isalpha() or char in ".,?!'" for char in lyrics):
-        print(f"Error processing chunk {chunk_index}: {lyrics}")
+    if not check_if_valid_lyrics(lyrics):
+        print(
+            f"Error processing chunk {chunk_index}, Invalid lyrics generated. Generated lyrics: {lyrics}"
+        )
         lyrics = "No lyrics in this section of the song."
 
     tempo, beats = extract_tempo_and_beats(audio_file)
@@ -268,21 +276,8 @@ def process_chunk(
             previous_caption,
         )
 
-    # send prompt to image generation server
-    response = requests.post(
-        image_generation_url + "/generate", json={"prompt": prompt}
-    )
-    # response is json with a base64 encoded image as 'image' and a caption as 'caption'
-
-    json_response = response.json()
-
-    encoded_image = json_response.get("image")
-    if not encoded_image:
-        print(f"Error processing chunk {chunk_index}: {json_response}")
-        return
-
-    caption = json_response.get("caption")
-    print(f"Caption for chunk {chunk_index}: {caption}")
+    print("Generating image...")
+    encoded_image, caption = generate_image(prompt, chunk_index)
 
     with lock:
         chunk_status[chunk_index] = {
@@ -291,6 +286,47 @@ def process_chunk(
             "caption": caption,
         }
     print(f"Chunk {chunk_index} processed.")
+
+
+def check_if_valid_lyrics(lyrics):
+    eng_alphabet = "abcdefghijklmnopqrstuvwxyz"
+    numbers = "0123456789"
+    punctuation = ".,?!' "
+    lyrics = lyrics.lower()
+    for char in lyrics:
+        if char not in eng_alphabet and char not in numbers and char not in punctuation:
+            return False
+
+
+def generate_image(prompt, chunk_index):
+    # send prompt to image generation server
+    # response = requests.post(
+    #     image_generation_url + "/generate", json={"prompt": prompt}
+    # )
+    # # response is json with a base64 encoded image as 'image' and a caption as 'caption'
+
+    # json_response = response.json()
+
+    # encoded_image = json_response.get("image")
+    # if not encoded_image:
+    #     print(f"Error processing chunk {chunk_index}: {json_response}")
+    #     return
+
+    # caption = json_response.get("caption")
+    # print(f"Caption for chunk {chunk_index}: {caption}")
+    # return encoded_image, caption
+
+    return "base64 image data", f"caption for chunk {chunk_index}"
+
+
+def reset_app():
+    global chunk_status
+    global executor
+    chunk_status = {}
+    executor.shutdown(wait=True, cancel_futures=True)
+    time.sleep(1)
+    executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
+    print("App reset successfully.")
 
 
 @app.route("/process_audio", methods=["POST"])
@@ -307,9 +343,7 @@ def process_audio():
     if not audio_url:
         return jsonify({"error": "No audio URL provided"}), 400
 
-    executor.shutdown(wait=False)
-    # startup the executor again
-    executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
+    reset_app()
 
     audio_file = "downloaded_audio.wav"
     folder_name = "audio_data"
@@ -318,21 +352,29 @@ def process_audio():
 
     y, sr = librosa.load(audio_file)
     song_length = librosa.get_duration(y=y, sr=sr)
-    num_chunks = int(np.ceil(song_length / 10))
+    num_chunks = int(np.ceil(song_length / SEGMENT_DURATION))
 
     # transcribe the entire audio file
     entire_lyrics = model(audio_file, return_timestamps=True)["text"]
 
-    generate_chunks(audio_file, folder_name, segment_duration=10)
+    generate_chunks(audio_file, folder_name, segment_duration=SEGMENT_DURATION)
 
     # Process the first chunk and send the response
-    process_chunk(audio_file, folder_name, entire_lyrics, 0, 10, num_chunks)
+    process_chunk(
+        audio_file, folder_name, entire_lyrics, 0, SEGMENT_DURATION, num_chunks
+    )
     response = chunk_status[0]
 
     # Process the rest of the chunks in the background
     for i in range(1, num_chunks):
         executor.submit(
-            process_chunk, audio_file, folder_name, entire_lyrics, i, 10, num_chunks
+            process_chunk,
+            audio_file,
+            folder_name,
+            entire_lyrics,
+            i,
+            SEGMENT_DURATION,
+            num_chunks,
         )
 
     return jsonify(
@@ -365,6 +407,12 @@ def set_image_generation_url():
         return jsonify({"error": "No URL provided"}), 400
     image_generation_url = url
     return jsonify({"message": "URL set successfully"})
+
+
+@app.route("/reset", methods=["POST"])
+def reset():
+    reset_app()
+    return jsonify({"message": "App reset successfully"})
 
 
 @app.route("/")
