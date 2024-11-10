@@ -20,6 +20,7 @@ var num_chunks = 0;
 const backend_url = "https://95d5-76-33-234-133.ngrok-free.app"
 
 // a token is { apiKey: string, appId: string, regions: string[] } base64 encoded
+// Sample API KEY and AppId for UploadThing
 const apiKey = "sk_live_a010c50c9538477356398d7df64188ed7659c296596c9b2caddbfbaeed8db505";
 const appId = "mq0ylv65sz";
 const regions = ["sea1"];

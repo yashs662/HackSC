@@ -106,6 +106,7 @@ def generate():
 if __name__ == '__main__':
     try:
         # Set ngrok authtoken
+        # Sample API key, replace with your own
         ngrok.set_auth_token("2oe51PGMgAbYP4XK6fYJ9REjg5l_xN7W8s2Z9dsPMu6gqBBd")
 
         # Open an HTTP tunnel on the default port 5000
