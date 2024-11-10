@@ -409,7 +409,7 @@ const SongwritingQuestions = {
 };
 const getQuestionFromCategory: ToolConfig = {
   id: "get-category-questions",
-  name: "Get Songwriting Category Questions",
+  name: "provide questions about music making in a specific topic",
   description: "Provides questions from a specific songwriting category to guide the creative process",
   input: z.object({
     category: z.enum(Object.keys(SongwritingQuestions) as [string, ...string[]]).describe("The songwriting category to get questions from")
@@ -437,7 +437,7 @@ const getQuestionFromCategory: ToolConfig = {
 
 const getBrainstorming: ToolConfig = {
   id: "Brain-Storm-about-Music",
-  name: "Brain Storm about Music/Songs/tracks or Music Videos",
+  name: "help Brainstorm ideas about Music and Music Videos",
   description: "Get ideas and answer questions to kick-star your creative process",
   input: z.object({}),
   output: z.object({
