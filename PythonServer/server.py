@@ -8,19 +8,21 @@ import soundfile as sf
 from transformers import pipeline
 from concurrent.futures import ThreadPoolExecutor
 import threading
-import base64
 
 app = Flask(__name__)
-executor = ThreadPoolExecutor(max_workers=1)
+NUM_WORKERS = 1
+executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
 lock = threading.Lock()
 chunk_status = {}
 image_generation_url = ""
 
+
 # Function to download the audio file from the provided URL
 def download_audio(url, filename):
     response = requests.get(url)
-    with open(filename, 'wb') as file:
+    with open(filename, "wb") as file:
         file.write(response.content)
+
 
 # Function to extract tempo and beats from audio
 def extract_tempo_and_beats(audio_path):
@@ -79,8 +81,20 @@ def extract_spectral_features(audio_path, segment_start, segment_end):
 
 
 # Function to create a more specific prompt for each segment of the song
-def create_prompt(tempo, key, energy, spectral_features, segment_time, lyrics):
-    # Describing visual elements based on tempo
+def create_prompt(
+    lyrics,
+    current_segment_lyrics,
+    tempo,
+    key,
+    energy,
+    spectral_features,
+    num_images,
+    current_image_index,
+    previous_caption=None,
+    user_style=None,
+):
+    # Analyze song characteristics
+    # Tempo
     if tempo < 60:
         tempo_desc = "slow and calming"
     elif 60 <= tempo < 120:
@@ -88,13 +102,13 @@ def create_prompt(tempo, key, energy, spectral_features, segment_time, lyrics):
     else:
         tempo_desc = "fast-paced, energetic"
 
-    # Describing the mood based on key (Major or Minor)
+    # Key
     if key in ["C", "D", "E", "F", "G", "A"]:
         key_desc = f"Key {key} - bright and uplifting"
     else:
         key_desc = f"Key {key} - dark and mysterious"
 
-    # Energy description
+    # Energy
     if energy < 0.1:
         energy_desc = f"energy {energy} - soft, mellow tones"
     elif 0.1 <= energy < 0.5:
@@ -102,7 +116,7 @@ def create_prompt(tempo, key, energy, spectral_features, segment_time, lyrics):
     else:
         energy_desc = f"energy {energy} - intense, powerful vibrations"
 
-    # Timbre description based on spectral features
+    # Timbre based on spectral features
     spectral_centroid, spectral_rolloff, spectral_bandwidth = spectral_features
     if spectral_centroid < 1000:
         timbre_desc = f"spectral centroid {spectral_centroid} - dark and resonant"
@@ -111,26 +125,39 @@ def create_prompt(tempo, key, energy, spectral_features, segment_time, lyrics):
     else:
         timbre_desc = f"spectral centroid {spectral_centroid} - bright and sharp"
 
-    # Use spectral rolloff to adjust the brightness
     if spectral_rolloff < 0.85:
-        timbre_desc += (
-            f" spectral rolloff {spectral_rolloff} - with low, mellow frequencies"
-        )
+        timbre_desc += " with low, mellow frequencies"
     else:
-        timbre_desc += (
-            f" spectral rolloff {spectral_rolloff} - with high, piercing frequencies"
-        )
+        timbre_desc += " with high, piercing frequencies"
 
-    # Use bandwidth to describe the texture of the sound
     if spectral_bandwidth < 1500:
-        timbre_desc += f" spectral bandwith {spectral_bandwidth} - and a smooth texture"
+        timbre_desc += " and a smooth texture"
     else:
-        timbre_desc += (
-            f" spectral bandwith {spectral_bandwidth} - with a rough, textured feel"
-        )
+        timbre_desc += " with a rough, textured feel"
 
-    # Finalizing the prompt with a timestamp reference
-    prompt = f"Tempo: {tempo_desc} - {tempo[0]} BPM, {key_desc} overtones. Energy {energy_desc} vibe. The timbre is {timbre_desc}."
+    # Optional link to the previous image's caption for story continuity
+    link_to_previous = (
+        f"Building from the last scene: '{previous_caption}', "
+        if previous_caption
+        else ""
+    )
+
+    # Optional user style
+    style_desc = (
+        f"in a style inspired by {user_style}"
+        if user_style
+        else "in a cinematic and expressive style"
+    )
+
+    # Construct the prompt
+    prompt = (
+        f"{link_to_previous}Frame {current_image_index + 1} of {num_images}: "
+        f"depicting a scene inspired by the lyrics: '{current_segment_lyrics}'. "
+        f"The mood is {tempo_desc}, {key_desc}, {energy_desc}, and the timbre has {timbre_desc}. "
+        f"Render this scene {style_desc}. Each frame captures the essence of the song's journey, "
+        f"with visuals that reflect the music's mood and intensity."
+        f"The entire song lyrics are: {lyrics}"
+    )
 
     return prompt
 
@@ -190,31 +217,88 @@ def generate_chunks(audio_file, folder_name, segment_duration=10):
         i += 1
 
 
-def process_chunk(audio_file, folder_name, chunk_index, segment_duration):
+def process_chunk(
+    audio_file, folder_name, entire_lyrics, chunk_index, segment_duration, num_chunks
+):
+    print(f"Processing chunk {chunk_index}...")
     start_time = chunk_index * segment_duration
     end_time = start_time + segment_duration
     lyrics = model(f"{folder_name}/chunk_{chunk_index}.wav")["text"]
+
+    # check if the lyrics generated are actually something if errored out it genrates something like ស្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្្, basically a bunch of gibberish non alphabet or punctuation based characters
+    if not any(char.isalpha() or char in ".,?!'" for char in lyrics):
+        print(f"Error processing chunk {chunk_index}: {lyrics}")
+        lyrics = "No lyrics in this section of the song."
+
     tempo, beats = extract_tempo_and_beats(audio_file)
     key = extract_key(audio_file, start_time, end_time)
     energy = extract_energy(audio_file, start_time, end_time)
     spectral_features = extract_spectral_features(audio_file, start_time, end_time)
-    prompt = create_prompt(tempo, key, energy, spectral_features, start_time, lyrics)
+
+    print("Creating prompt...")
+
+    if chunk_index == 0:
+        prompt = create_prompt(
+            entire_lyrics,
+            lyrics,
+            tempo,
+            key,
+            energy,
+            spectral_features,
+            num_chunks,
+            chunk_index,
+        )
+    else:
+        # combine all previous captions with a index e.g "caption 1: caption 2: caption 3"
+        previous_captions = [
+            chunk_status[i]["caption"] for i in range(chunk_index) if i in chunk_status
+        ]
+        previous_caption = " ".join(
+            [f"caption {i+1}: {caption}" for i, caption in enumerate(previous_captions)]
+        )
+        prompt = create_prompt(
+            entire_lyrics,
+            lyrics,
+            tempo,
+            key,
+            energy,
+            spectral_features,
+            num_chunks,
+            chunk_index,
+            previous_caption,
+        )
 
     # send prompt to image generation server
-    response = requests.post(image_generation_url + "/generate", json={"prompt": prompt})
-    # response is a mimetype: image/png
-    # base64 encode the image
-    encoded_image = base64.b64encode(response.content).decode('utf-8')
+    response = requests.post(
+        image_generation_url + "/generate", json={"prompt": prompt}
+    )
+    # response is json with a base64 encoded image as 'image' and a caption as 'caption'
+
+    json_response = response.json()
+
+    encoded_image = json_response.get("image")
+    if not encoded_image:
+        print(f"Error processing chunk {chunk_index}: {json_response}")
+        return
+
+    caption = json_response.get("caption")
+    print(f"Caption for chunk {chunk_index}: {caption}")
 
     with lock:
-        chunk_status[chunk_index] = {"prompt": prompt, "image": encoded_image}
+        chunk_status[chunk_index] = {
+            "prompt": prompt,
+            "image": encoded_image,
+            "caption": caption,
+        }
     print(f"Chunk {chunk_index} processed.")
 
-@app.route('/process_audio', methods=['POST'])
+
+@app.route("/process_audio", methods=["POST"])
 def process_audio():
     global model
+    global executor
     data = request.json
-    audio_url = data.get('audio_url')
+    audio_url = data.get("audio_url")
 
     # check if the image generation URL is set
     if not image_generation_url:
@@ -223,54 +307,76 @@ def process_audio():
     if not audio_url:
         return jsonify({"error": "No audio URL provided"}), 400
 
+    executor.shutdown(wait=False)
+    # startup the executor again
+    executor = ThreadPoolExecutor(max_workers=NUM_WORKERS)
+
     audio_file = "downloaded_audio.wav"
     folder_name = "audio_data"
     download_audio(audio_url, audio_file)
+    print("Audio file downloaded.")
 
     y, sr = librosa.load(audio_file)
     song_length = librosa.get_duration(y=y, sr=sr)
     num_chunks = int(np.ceil(song_length / 10))
 
+    # transcribe the entire audio file
+    entire_lyrics = model(audio_file, return_timestamps=True)["text"]
+
     generate_chunks(audio_file, folder_name, segment_duration=10)
 
     # Process the first chunk and send the response
-    process_chunk(audio_file, folder_name, 0, 10)
+    process_chunk(audio_file, folder_name, entire_lyrics, 0, 10, num_chunks)
     response = chunk_status[0]
 
     # Process the rest of the chunks in the background
     for i in range(1, num_chunks):
-        executor.submit(process_chunk, audio_file, folder_name, i, 10)
+        executor.submit(
+            process_chunk, audio_file, folder_name, entire_lyrics, i, 10, num_chunks
+        )
 
-    return jsonify({"first_chunk_prompt": response, "num_chunks": num_chunks})
+    return jsonify(
+        {
+            "first_chunk_prompt": response,
+            "num_chunks": num_chunks,
+            "song_lyrics": entire_lyrics,
+        }
+    )
 
-@app.route('/reset_chunks', methods=['POST'])
+
+@app.route("/reset_chunks", methods=["POST"])
 def reset_chunks():
     global chunk_status
     chunk_status = {}
     return jsonify({"message": "Chunks reset successfully"})
 
-@app.route('/chunk_status', methods=['GET'])
+
+@app.route("/chunk_status", methods=["GET"])
 def get_chunk_status():
     return jsonify(chunk_status)
 
-@app.route('/set_image_generation_url', methods=['POST'])
+
+@app.route("/set_image_generation_url", methods=["POST"])
 def set_image_generation_url():
     global image_generation_url
     data = request.json
-    url = data.get('url')
+    url = data.get("url")
     if not url:
         return jsonify({"error": "No URL provided"}), 400
     image_generation_url = url
     return jsonify({"message": "URL set successfully"})
 
-# create a hello world route
-@app.route('/')
+
+@app.route("/")
 def hello_world():
-    return 'Hello, World!'
+    return "Hello, World!"
+
 
 if __name__ == "__main__":
     print("Loading model...")
-    model = pipeline("automatic-speech-recognition", model="openai/whisper-large", device=0)
+    model = pipeline(
+        "automatic-speech-recognition", model="openai/whisper-large", device=0
+    )
     public_url = ngrok.connect(5000)
     print(f" * Tunnel URL: {public_url}")
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host="0.0.0.0", port=5000)
