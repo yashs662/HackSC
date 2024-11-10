@@ -2,11 +2,12 @@ import logging
 from flask import Flask, request, jsonify, render_template_string
 from pyngrok import ngrok
 from diffusers import DiffusionPipeline
-from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer, AutoModelForCausalLM
+from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer, AutoModelForCausalLM, BlipProcessor, BlipForConditionalGeneration, Blip2Processor, Blip2ForConditionalGeneration
 import torch
 from PIL import Image
 import io
 import base64
+import re
 
 app = Flask(__name__)
 
@@ -29,27 +30,19 @@ except Exception as e:
     logger.error(f"Error loading Stable Diffusion pipeline: {e}")
     raise
 
-# Initialize the ViT-GPT2 image captioning model
-try:
-    logger.info("Loading image captioning model...")
-    caption_model = VisionEncoderDecoderModel.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
-    feature_extractor = ViTImageProcessor.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
-    tokenizer = AutoTokenizer.from_pretrained("nlpconnect/vit-gpt2-image-captioning")
-    caption_model.to(device)
-    logger.info("Image captioning model loaded successfully.")
-except Exception as e:
-    logger.error(f"Error loading image captioning model: {e}")
-    raise
-
 # Initialize the GPT-2 model for prompt transformation
 try:
-    logger.info("Loading GPT-2 model for prompt transformation...")
-    gpt_model = AutoModelForCausalLM.from_pretrained("gpt2")
-    gpt_tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    gpt_model.to(device)
-    logger.info("GPT-2 model loaded successfully.")
+    logger.info("Loading SmolLm2 model for prompt transformation...")
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    checkpoint = "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+    device = "cuda" # for GPU usage or "cpu" for CPU usage
+    tokenizer = AutoTokenizer.from_pretrained(checkpoint)
+    # for multiple GPUs install accelerate and do `model = AutoModelForCausalLM.from_pretrained(checkpoint, device_map="auto")`
+    model = AutoModelForCausalLM.from_pretrained(checkpoint).to(device)
+    logger.info("SmolLm2 model loaded successfully.")
+    
 except Exception as e:
-    logger.error(f"Error loading GPT-2 model: {e}")
+    logger.error(f"Error loading SmolLm2 model: {e}")
     raise
 
 # HTML template for the web interface
@@ -84,26 +77,18 @@ def generate():
 
         logger.info(f"Received original prompt: {prompt}")
 
-        # Transform the prompt using the GPT-2 model
-        inputs = gpt_tokenizer.encode(prompt, return_tensors="pt").to(device)
-        outputs = gpt_model.generate(inputs, max_length=1000, num_return_sequences=1, no_repeat_ngram_size=2)
-        transformed_prompt = gpt_tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-
+        # Transform the prompt using the SmolLm2 model
+        messages = [{"role": "user", "content": prompt}]
+        input_text=tokenizer.apply_chat_template(messages, tokenize=False)
+        inputs = tokenizer.encode(input_text, return_tensors="pt").to(device)
+        outputs = model.generate(inputs, max_new_tokens=100, temperature=0.2, top_p=0.9, do_sample=True)
+        transformed_prompt = tokenizer.decode(outputs[0])
+        transformed_prompt = re.search(r"<\|im_start\|>assistant(.*?)(<\|im_end\|>|$)", transformed_prompt, re.DOTALL).group(1).strip()
         logger.info(f"Transformed prompt: {transformed_prompt}")
 
         # Generate the image using the transformed prompt
         with torch.autocast(device):
             image = sd_pipeline(transformed_prompt, height = 512, width = 512).images[0]
-
-        # Caption the image
-        image_for_caption = image.convert("RGB")
-        pixel_values = feature_extractor(images=image_for_caption, return_tensors="pt").pixel_values
-        pixel_values = pixel_values.to(device)
-
-        output_ids = caption_model.generate(pixel_values, max_length=16, num_beams=4)
-        caption = tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
-
-        logger.info(f"Generated caption: {caption}")
 
         # Convert image to base64 with lower quality
         buffered = io.BytesIO()
