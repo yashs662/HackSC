@@ -90,6 +90,8 @@ def generate():
         with torch.autocast(device):
             image = sd_pipeline(transformed_prompt, height = 512, width = 512).images[0]
 
+        caption = "test"
+
         # Convert image to base64 with lower quality
         buffered = io.BytesIO()
         image.save(buffered, format="PNG", quality=80)  # Adjust quality (0-100)
