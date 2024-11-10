@@ -223,8 +223,18 @@ const checkForPorgress: ToolConfig = {
 
     console.log(`Generated Chunks: ${generated_chunks.length}, Total Chunks: ${num_chunks}`);
 
+    let remainder = num_chunks - generated_chunks.length;
+    if (remainder <= 0) {
+      remainder = 0;
+    }
+
+    let text = `We have generated ${generated_chunks.length} out of ${num_chunks} total images for the storyboard`;
+    if (remainder == 0) {
+      text = `We have generated all the images for the storyboard`;
+    }
+
     return {
-      text: `There are ${num_chunks} chunks left to generate`,
+      text: text,
       data: {
         Chunks: num_chunks
       },
@@ -233,7 +243,7 @@ const checkForPorgress: ToolConfig = {
         uiData: JSON.stringify({
           type: "success",
           title: "Generation Progress",
-          message: `We have generated ${generated_chunks.length} out of ${num_chunks} total images`,
+          message: `We have generated ${generated_chunks.length} out of ${num_chunks} total images for the storyboard`,
           icon: true  // Optional, defaults to true
         })
       }
@@ -243,8 +253,8 @@ const checkForPorgress: ToolConfig = {
 
 const displayCurrentProgress: ToolConfig = {
   id: "display-current-progress",
-  name: "Display Current Progress",
-  description: "Display current progress of the music video generation",
+  name: "Display Images/storyboard/video generated till now",
+  description: "Display images generated till now",
   input: z
     .object({})
     .describe("Display all images generated till now"),
