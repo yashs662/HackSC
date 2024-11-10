@@ -10,14 +10,18 @@
     "deploy": "dain deploy"
   },
   "dependencies": {
+    "@dainprotocol/cli": "^1.0.31",
     "@dainprotocol/service-sdk": "^1.0.41",
-    "zod": "^3.23.8",
-    "hono": "^4.6.3",
-    "ts-node": "^10.4.0",
-    "typescript": "^5.5.4",
     "@types/express": "^4.17.13",
     "@types/node": "^22.5.4",
     "axios": "^1.7.5",
-    "@dainprotocol/cli": "^1.0.31"
+    "crypto-js": "^4.2.0",
+    "effect": "^3.10.13",
+    "hono": "^4.6.3",
+    "sqids": "^0.3.0",
+    "ts-node": "^10.4.0",
+    "typescript": "^5.5.4",
+    "uploadthing": "^7.3.0",
+    "zod": "^3.23.8"
   }
 }

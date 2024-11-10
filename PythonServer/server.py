@@ -17,6 +17,7 @@ lock = threading.Lock()
 chunk_status = {}
 image_generation_url = ""
 SEGMENT_DURATION = 20  # seconds
+total_chunks = 0
 
 
 # Function to download the audio file from the provided URL
@@ -259,7 +260,7 @@ def process_chunk(
     else:
         # combine all previous captions with a index e.g "caption 1: caption 2: caption 3"
         previous_captions = [
-            chunk_status[i]["caption"] for i in range(chunk_index) if i in chunk_status
+            chunk_status[i]["caption"] + chunk_status[i]["chunk_lyrics"] for i in range(chunk_index) if i in chunk_status
         ]
         previous_caption = " ".join(
             [f"caption {i+1}: {caption}" for i, caption in enumerate(previous_captions)]
@@ -281,6 +282,7 @@ def process_chunk(
 
     with lock:
         chunk_status[chunk_index] = {
+            "chunk_lyrics": lyrics,
             "prompt": prompt,
             "image": encoded_image,
             "caption": caption,
@@ -292,7 +294,7 @@ def check_if_valid_lyrics(lyrics):
     eng_alphabet = "abcdefghijklmnopqrstuvwxyz"
     numbers = "0123456789"
     punctuation = ".,?!' "
-    lyrics = lyrics.lower()
+    lyrics = lyrics.lower().strip()
     for char in lyrics:
         if char not in eng_alphabet and char not in numbers and char not in punctuation:
             return False
@@ -300,23 +302,21 @@ def check_if_valid_lyrics(lyrics):
 
 def generate_image(prompt, chunk_index):
     # send prompt to image generation server
-    # response = requests.post(
-    #     image_generation_url + "/generate", json={"prompt": prompt}
-    # )
-    # # response is json with a base64 encoded image as 'image' and a caption as 'caption'
+    response = requests.post(
+        image_generation_url + "/generate", json={"prompt": prompt}
+    )
+    # response is json with a base64 encoded image as 'image' and a caption as 'caption'
 
-    # json_response = response.json()
+    json_response = response.json()
 
-    # encoded_image = json_response.get("image")
-    # if not encoded_image:
-    #     print(f"Error processing chunk {chunk_index}: {json_response}")
-    #     return
+    encoded_image = json_response.get("image")
+    if not encoded_image:
+        print(f"Error processing chunk {chunk_index}: {json_response}")
+        return
 
-    # caption = json_response.get("caption")
-    # print(f"Caption for chunk {chunk_index}: {caption}")
-    # return encoded_image, caption
-
-    return "base64 image data", f"caption for chunk {chunk_index}"
+    caption = json_response.get("caption")
+    print(f"Caption for chunk {chunk_index}: {caption}")
+    return encoded_image, caption
 
 
 def reset_app():
@@ -333,6 +333,7 @@ def reset_app():
 def process_audio():
     global model
     global executor
+    global total_chunks
     data = request.json
     audio_url = data.get("audio_url")
 
@@ -354,19 +355,15 @@ def process_audio():
     song_length = librosa.get_duration(y=y, sr=sr)
     num_chunks = int(np.ceil(song_length / SEGMENT_DURATION))
 
+    total_chunks = num_chunks
+
     # transcribe the entire audio file
     entire_lyrics = model(audio_file, return_timestamps=True)["text"]
 
     generate_chunks(audio_file, folder_name, segment_duration=SEGMENT_DURATION)
 
-    # Process the first chunk and send the response
-    process_chunk(
-        audio_file, folder_name, entire_lyrics, 0, SEGMENT_DURATION, num_chunks
-    )
-    response = chunk_status[0]
-
     # Process the rest of the chunks in the background
-    for i in range(1, num_chunks):
+    for i in range(0, num_chunks):
         executor.submit(
             process_chunk,
             audio_file,
@@ -379,7 +376,7 @@ def process_audio():
 
     return jsonify(
         {
-            "first_chunk_prompt": response,
+            "message": "Audio processing started, please use the check progress command to check the status",
             "num_chunks": num_chunks,
             "song_lyrics": entire_lyrics,
         }
@@ -391,6 +388,11 @@ def reset_chunks():
     global chunk_status
     chunk_status = {}
     return jsonify({"message": "Chunks reset successfully"})
+
+
+@app.route("/get_total_chunks", methods=["GET"])
+def get_total_chunks():
+    return jsonify({"total_chunks": total_chunks})
 
 
 @app.route("/chunk_status", methods=["GET"])

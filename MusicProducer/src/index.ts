@@ -5,17 +5,111 @@ import axios from "axios";
 import {
   defineDAINService,
   ToolConfig,
-  ServiceConfig,
   ToolboxConfig,
-  ServiceContext,
 } from "@dainprotocol/service-sdk";
+
+import { UTApi } from "uploadthing/server";
+
+// ############################################################################################################
+// ############################################################################################################
+// ############################################################################################################
+// config + global variables
+
+var generated_chunks = [];
+var num_chunks = 0;
+const backend_url = "https://adde-76-33-234-133.ngrok-free.app"
+
+// a token is { apiKey: string, appId: string, regions: string[] } base64 encoded
+const apiKey = "sk_live_a010c50c9538477356398d7df64188ed7659c296596c9b2caddbfbaeed8db505";
+const appId = "mq0ylv65sz";
+const regions = ["sea1"];
+const token = Buffer.from(
+  JSON.stringify({ apiKey, appId, regions }),
+).toString("base64");
+const utapi = new UTApi({ token: token });
+
+// ############################################################################################################
+// ############################################################################################################
+// ############################################################################################################
+// Helper functions
+
+function base64ToFile(base64: string, filename: string, mimeType: string): File {
+  const byteString = atob(base64.split(",")[1]);
+  const arrayBuffer = new ArrayBuffer(byteString.length);
+  const uint8Array = new Uint8Array(arrayBuffer);
+
+  for (let i = 0; i < byteString.length; i++) {
+    uint8Array[i] = byteString.charCodeAt(i);
+  }
+
+  const blob = new Blob([uint8Array], { type: mimeType });
+  return new File([blob], filename, { type: mimeType });
+}
+
+async function fetchChunks() {
+  let config = {
+    method: 'get',
+    maxBodyLength: Infinity,
+    url: `${backend_url}/get_total_chunks`,
+    headers: {}
+  };
+  
+  let res = await axios(config);
+  console.log(res.data);
+  num_chunks = res.data.total_chunks;
+
+  config = {
+    method: 'get',
+    maxBodyLength: Infinity,
+    url: `${backend_url}/chunk_status`,
+    headers: {}
+  };
+
+  res = await axios(config);
+  // will return a json with keys being the chunk number and the value being an object with keys caption, image, prompt, chunk_lyrics
+  // update the generated_chunks array with the response
+
+  let all_chunks = res.data;
+  let keys = Object.keys(all_chunks);
+  for (let i = 0; i < keys.length; i++) {
+    // check if the chunk is already generated
+    if (generated_chunks.find((chunk) => chunk.chunk_no == keys[i])) {
+      continue;
+    }
+    console.log(`populating chunk ${keys[i]}`);
+    let key = keys[i];
+    let chunk = all_chunks[key];
+    let imageBuffer = `data:image/png;base64,${chunk.image}`;
+    const file_name_length = 20;
+    const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+    const randomFileName = Array.from({ length: file_name_length }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
+    const imageName = `${randomFileName}.png`;
+    const file = base64ToFile(imageBuffer, imageName, "image/png");
+    const upload_test_res = await utapi.uploadFiles([file]);
+    const image_url = upload_test_res[0].data.url;
+    console.log(image_url);
+
+    generated_chunks.push({
+      chunk_no: key,
+      image: image_url,
+      analysis: chunk
+    })
+  }
+
+}
+
+// ############################################################################################################
+// ############################################################################################################
+// ############################################################################################################
+
+//Toolbox Configuration
 
 const MusicProducerToolboxConfig: ToolboxConfig = {
   id: "Music-Analysis-ToolBox",
   name: "Music Producer / Music Video Producer Tool Box",
   description: "Complete tool box for analyzing music and creating music video descriptions",
   tools: [
-    "give-similar-music-recommendations", "get-music-tags", 
+    "create a music video", "check for progress", "display all images"
   ],
   metadata: {
     complexity: "High",
@@ -53,204 +147,143 @@ Deliver the final outputs, ensuring the user is satisfied with all aspects of th
     
   `
 };
-const CreativeProcessWorkshoping: ToolConfig = {
-    id: "Creative-Process-Brainstorm",
-    name: "tell me the steps in creating a music project",
-    description: "Process that helps the user brainstorm ideas by showing different steps in creation",
-    input: z
-      .object({
-        inspiration: z.string().describe("Enter something in from the creative world of music.")
-      })
-      .describe("Input parameters for the music analysis"),
-    output: z
-      .string()
-      .describe("Tags to Describe the Music"),
-    pricing: { pricePerUse: 0, currency: "USD" },
-    handler: async ({ Lyrics }, agentInfo) => {
-      console.log(
-        `User / Agent ${agentInfo.id} requested lyrical analysis.`
-      );
-      // Local AI prompting goes here (if needed)
-      // const lyric = "High Tempo, C# key, Low Energy, Choir Music, Harsh Tones "
-      
-      //const tags = "Bees, Hive Music, Silly, Whimsical";
-    //for the first time period the music is {tempo, key, energy, type of song, timbre}
-      return {
-          text: `Help the user contextualize their vision. If the user has mentioned or any of the steps, prompt them with a question that inspires them.`, 
-          data: {   },
-          ui: { type: "table", 
-          uiData: JSON.stringify({ columns: [
-          { key: "name", header: "Name", type: "text", width: "30%" },
-          { key: "data", header: "tips", type: "text", width: "70%" }
-          ],
-          rows: [
-          { "name": "Step 1: Defining Your Vision", "data": "Decide on your genre, message, and target audience. Are you aiming for pop, indie, hip-hop, etc.? What themes or messages do you want to express?" },
-          { "name": "Step 2: Conceptualizing the Project", "data": "Choose whether you're creating a single, EP, or album. What is the mood or tone of your music? Think about track count, overall flow, and themes." },
-          { "name": "Step 3: Writing & Production", "data": "Consider if you're writing the music yourself or collaborating. Determine the instruments, sounds, and artists you're inspired by." },
-          { "name": "Step 4: Recording & Mixing", "data": "Decide if you'll be recording at home or in a studio. Will you need a producer or mixing engineer? Plan out your equipment and software." },
-          { "name": "Step 5: Visuals & Branding", "data": "Think about the imagery, album cover, and social media presence. How do you want to present yourself and your music visually?" },
-          { "name": "Step 6: Release & Promotion", "data": "Decide on your release platforms (Spotify, SoundCloud, etc.). Plan your promotional strategy: social media, live performances, collaborations, etc." }     ]
-             })
-          }
-          };
-    }
-};
-const giveMusicRecommendations: ToolConfig = {
-  id: "give-similar-music-recommendations",
-  name: "give me music recommendations",
-  description: "Gives music recommendations of genres, artists, and moods similar ones previously mentioned",
+
+const generateMusicVideo: ToolConfig = {
+  id: "create-music-video",
+  name: "Create a music video",
+  description: "Create a music video from a .wav file",
   input: z
     .object({
-      user_known_artists: z.string().describe("Enter music artists or genres you enjoy to listen to.")
+      WAVFile: z.string().describe("Input a URL for a .wav file of the music you want analyzed."),
     })
     .describe("Input parameters for the music analysis"),
   output: z
     .any()
     .describe("Tags to Describe the Music"),
   pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async ({ user_known_artists }, agentInfo) => {
+  handler: async ({ WAVFile }, agentInfo) => {
     console.log(
-      `User / Agent ${agentInfo.id} requested music recommendations`
+      `User / Agent ${agentInfo.id} requested music tag analysis for ${WAVFile}`
     );
-    // Local AI prompting goes here
-    //const tags = "High Tempo, C# key, Low Energy, Choir Music, Harsh Tones "
 
+    let data = JSON.stringify({
+      "audio_url": WAVFile
+    });
 
-    //const tags = "Bees, Hive Music, Silly, Whimsical";
-  //for the first time period the music is {tempo, key, energy, type of song, timbre}
-    return {
-      text: `Return Music artists similar in genre and theme to ${user_known_artists}`,
-      data: { },
-      ui: {  }
+    let config = {
+      method: 'post',
+      maxBodyLength: Infinity,
+      url: `${backend_url}/process_audio`,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      data: data
     };
-  }
-};
-const getMusicTagsFromWav: ToolConfig = {//rename later
-  id: "get-music-tags",
-  name: "Describe this music",
-  description: "Describe and tags the music to genres, emotions, places, and themes",
-  input: z
-    .object({
-      WAVFile : z.string().describe("Input a URL for a .wav file of the music you want analyzed."),
-      Title: z.string().describe("Enter the title of the music piece (this may be different than that of the .wav file).")
-    })
-    .describe("Input parameters for the music analysis"),
-  output: z
-    .any()
-    .describe(""), // first process of the instance back
-  pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async ({ WAVFile, Title }, agentInfo) => {
-    console.log(
-      `User / Agent ${agentInfo.id} requested music tag analysis for ${WAVFile} and ${Title}`
-    );
-    // Local AI prompting goes here
-   const analysis = "Prompt for segment 180.0-190.0s:,Tempo: moderately paced, relaxed - 86.1328125 BPM, Key F - bright and uplifting overtones. Energy energy 0.3415415585041046 - steady, balanced rhythms vibe. The timbre is spectral centroid 2457.8464735763346 - warm and balanced spectral rolloff 5137.135194562899 - with high, piercing frequencies spectral bandwith 3214.8297814488824 - with a rough, textured feel.Lyrics: I said, ooh, I'm blinded by the light"
 
-    //const tags = "Bees, Hive Music, Silly, Whimsical";
-  //for the first time period the music is {tempo, key, energy, type of song, timbre}
+    const img_gen_response = await axios(config);
+    const analysis = img_gen_response.data;
+
+    num_chunks = analysis.first_chunk_prompt.num_chunks;
+
     return {
-      text: `Make a descriptive and environmental beautiful sentence about song, ${Title}, without repeating words in ${analysis}`,
+      text: `Make a descriptive and environmental beautiful sentence about song, make the user aware that other images are being generated in the background, without repeating words in ${analysis}`,
       data: {
-        Tags : analysis
+        Tags: analysis
       },
       ui: {
-            type: "imageCard",
-            uiData: JSON.stringify({
-              title: "Mountain Landscape",
-              description: "Beautiful mountain vista at sunset",
-              imageUrl: "https://example.com/mountain.jpg",
-              imageAlt: "Mountain sunset",
-              aspectRatio: "video",
-              actions: [
-                {
-                  text: "View Full Size",
-                  url: "https://example.com/mountain-full.jpg",
-                  variant: "default"
-                }
-              ],
-              overlay: false
-            })
-          }
-  };
-  }
-}
-const describeMusicFromLyrics: ToolConfig = {
-  id: "describe-music-from-lyrics",
-  name: "Describe this music from the lyrics",
-  description: "Describe the lyrics of the music to genres, emotions, places, and themes",
-  input: z
-    .object({
-      Lyrics: z.string().describe("Enter the Lyrics from the song you want analyzed.")
-    })
-    .describe("Input parameters for the music analysis"),
-  output: z
-    .any().describe("Tags to Describe the Music"),
-
-  pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async ({ Lyrics }, agentInfo) => {
-    console.log(
-      `User / Agent ${agentInfo.id} requested lyrical analysis.`
-    );
-    // Local AI prompting goes here (if needed)
-    // const lyric = "High Tempo, C# key, Low Energy, Choir Music, Harsh Tones "
-    
-    //const tags = "Bees, Hive Music, Silly, Whimsical";
-  //for the first time period the music is {tempo, key, energy, type of song, timbre}
-    return {
-      text: `From the following Lyrics "${Lyrics}" make an assumption of the tone and story of the song. Keep the description brief (less than 25 words) and accurate. Make sure the descriptio reflects the language spoken`,
-      data: {
-      },
-      ui: {
-        }
-      };
-  }
-};
-const displayImageForMusicFile: ToolConfig = {
-  id: "display-image-for-music",
-  name: "show an image describing this music file",
-  description: "Create an image for this music using the tags produced by its title and the WAV file",
-  input: z
-    .object({
-      //WAVFile : z.string().describe("Input a URL for a .wav file of the music you want analyzed."),
-      Title: z.string().describe("Enter the title of the music piece (this may be different than that of the .wav file)."),
-      //Tags : z.string().describe("Words separated by commas to describe musics when combined.")
-    })
-    .describe("Input parameters for Image generation"),
-  output: z
-    .any()
-    .describe("Create Tags to Describe the Music"),
-  pricing: { pricePerUse: 0, currency: "USD" },
-  handler: async ({ WAVFile, Title, Tags, Prompt }, agentInfo) => {
-    console.log(
-      `User / Agent ${agentInfo.id} requested image generation for ${WAVFile} and ${Title} using ${Tags}`
-    );
-    // Local AI prompting goes here
-    const tags = "high tempo, in the c# key, somber energy, choir song, and harsh}";
-  
-    return {
-        text: "Generated image card",
-        data: { /* your data */ },
-        ui: {
-          type: "imageCard",
-          uiData: JSON.stringify({
-            title: Title ?? Prompt ?? "Image Generated From Song Description",
-            description: "Beautiful mountain vista at sunset",
-            imageUrl: "https://example.com/mountain.jpg",
-            imageAlt: "Mountain sunset",
-            aspectRatio: "video",
-            actions: [
-              {
-                text: "View Full Size",
-                url: "https://example.com/mountain-full.jpg",
-                variant: "default"
-              }
-            ],
-            overlay: false
-          })
-        }
+        type: "alert",
+        uiData: JSON.stringify({
+          type: "success",
+          title: "Music Video Generation",
+          message: `We have started generating the music video for you. The first image will be ready soon. Use Check progress command soon!`,
+          icon: true  // Optional, defaults to true
+        })
       }
-  }
+    };
+  },
 };
+
+const checkForPorgress: ToolConfig = {
+  id: "check-for-progress",
+  name: "Check for Progress",
+  description: "Check how many chunks are left to generate",
+  input: z
+    .object({})
+    .describe("Check how many chunks are left to generate"),
+  output: z
+    .any()
+    .describe("Status of the music video generation"),
+  pricing: { pricePerUse: 0, currency: "USD" },
+  handler: async ({ }, agentInfo) => {
+    console.log(
+      `User / Agent ${agentInfo.id} requested to check how many chunks are left to generate`
+    );
+
+    fetchChunks();
+
+    console.log(`Generated Chunks: ${generated_chunks.length}, Total Chunks: ${num_chunks}`);
+
+    return {
+      text: `There are ${num_chunks} chunks left to generate`,
+      data: {
+        Chunks: num_chunks
+      },
+      ui: {
+        type: "alert",
+        uiData: JSON.stringify({
+          type: "success",
+          title: "Generation Progress",
+          message: `We have generated ${generated_chunks.length} out of ${num_chunks} total images`,
+          icon: true  // Optional, defaults to true
+        })
+      }
+    };
+  },
+};
+
+const displayAllImages: ToolConfig = {
+  id: "display-all-images",
+  name: "Display all images",
+  description: "Display all images generated",
+  input: z
+    .object({})
+    .describe("Display all images generated"),
+  output: z
+    .any()
+    .describe("Show All images generated"),
+  pricing: { pricePerUse: 0, currency: "USD" },
+  handler: async ({ }, agentInfo) => {
+    console.log(
+      `User / Agent ${agentInfo.id} requested to display all images`
+    );
+
+    let images = [];
+    for (let i = 0; i < generated_chunks.length; i++) {
+      images.push({
+        url: generated_chunks[i].image,
+        alt: `image_${i}`,
+        title: generated_chunks[i].analysis.caption
+      })
+    }
+
+    return {
+      text: `Here are all the images generated`,
+      data: {
+        Images: images
+      },
+      ui: {
+        type: "imageGallery",
+        uiData: JSON.stringify({
+          title: "Music Storyboard",  // Optional
+          description: "Story Board for the Music Video",  // Optional
+          columns: 2,  // Optional (2, 3, or 4)
+          images: images,
+        })
+      }
+    };
+  },
+};
+
 const dainService = defineDAINService({
   metadata: {
     title: "Music Analysis",
@@ -265,7 +298,7 @@ const dainService = defineDAINService({
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [getMusicTagsFromWav,displayImageForMusicFile, giveMusicRecommendations, describeMusicFromLyrics, CreativeProcessWorkshoping]
+  tools: [generateMusicVideo, checkForPorgress, displayAllImages],
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
