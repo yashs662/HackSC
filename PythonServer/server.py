@@ -8,11 +8,13 @@ import soundfile as sf
 from transformers import pipeline
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import base64
 
 app = Flask(__name__)
 executor = ThreadPoolExecutor(max_workers=1)
 lock = threading.Lock()
 chunk_status = {}
+image_generation_url = ""
 
 # Function to download the audio file from the provided URL
 def download_audio(url, filename):
@@ -197,8 +199,15 @@ def process_chunk(audio_file, folder_name, chunk_index, segment_duration):
     energy = extract_energy(audio_file, start_time, end_time)
     spectral_features = extract_spectral_features(audio_file, start_time, end_time)
     prompt = create_prompt(tempo, key, energy, spectral_features, start_time, lyrics)
+
+    # send prompt to image generation server
+    response = requests.post(image_generation_url + "/generate", json={"prompt": prompt})
+    # response is a mimetype: image/png
+    # base64 encode the image
+    encoded_image = base64.b64encode(response.content).decode('utf-8')
+
     with lock:
-        chunk_status[chunk_index] = prompt
+        chunk_status[chunk_index] = {"prompt": prompt, "image": encoded_image}
     print(f"Chunk {chunk_index} processed.")
 
 @app.route('/process_audio', methods=['POST'])
@@ -206,6 +215,11 @@ def process_audio():
     global model
     data = request.json
     audio_url = data.get('audio_url')
+
+    # check if the image generation URL is set
+    if not image_generation_url:
+        return jsonify({"error": "Image generation URL not set"}), 400
+
     if not audio_url:
         return jsonify({"error": "No audio URL provided"}), 400
 
@@ -229,9 +243,25 @@ def process_audio():
 
     return jsonify({"first_chunk_prompt": response, "num_chunks": num_chunks})
 
+@app.route('/reset_chunks', methods=['POST'])
+def reset_chunks():
+    global chunk_status
+    chunk_status = {}
+    return jsonify({"message": "Chunks reset successfully"})
+
 @app.route('/chunk_status', methods=['GET'])
 def get_chunk_status():
     return jsonify(chunk_status)
+
+@app.route('/set_image_generation_url', methods=['POST'])
+def set_image_generation_url():
+    global image_generation_url
+    data = request.json
+    url = data.get('url')
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+    image_generation_url = url
+    return jsonify({"message": "URL set successfully"})
 
 # create a hello world route
 @app.route('/')

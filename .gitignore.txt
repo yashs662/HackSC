@@ -1,4 +1,0 @@
-# Ignore .env.developement
-
-# Ignore node_modules directory
-node_modules/

@@ -1,3 +1,6 @@
 
 /MusicProducer/node_modules
 MusicProducer/.env.development
+venv
+audio_data
+downloaded_audio.wav
