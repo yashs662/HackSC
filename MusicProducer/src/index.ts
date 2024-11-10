@@ -9,6 +9,7 @@ import {
   ToolboxConfig,
   ServiceContext,
 } from "@dainprotocol/service-sdk";
+
 const MusicProducerToolboxConfig: ToolboxConfig = {
   id: "Music-Analysis-ToolBox",
   name: "Music Producer / Music Video Producer Tool Box",
@@ -52,8 +53,48 @@ Deliver the final outputs, ensuring the user is satisfied with all aspects of th
     
   `
 };
-
-//Display Images //Give Link to Images
+const CreativeProcessWorkshoping: ToolConfig = {
+    id: "Creative-Process-Brainstorm",
+    name: "tell me the steps in creating a music project",
+    description: "Process that helps the user brainstorm ideas by showing different steps in creation",
+    input: z
+      .object({
+        inspiration: z.string().describe("Enter something in from the creative world of music.")
+      })
+      .describe("Input parameters for the music analysis"),
+    output: z
+      .string()
+      .describe("Tags to Describe the Music"),
+    pricing: { pricePerUse: 0, currency: "USD" },
+    handler: async ({ Lyrics }, agentInfo) => {
+      console.log(
+        `User / Agent ${agentInfo.id} requested lyrical analysis.`
+      );
+      // Local AI prompting goes here (if needed)
+      // const lyric = "High Tempo, C# key, Low Energy, Choir Music, Harsh Tones "
+      
+      //const tags = "Bees, Hive Music, Silly, Whimsical";
+    //for the first time period the music is {tempo, key, energy, type of song, timbre}
+      return {
+          text: `Help the user contextualize their vision. If the user has mentioned or any of the steps, prompt them with a question that inspires them.`, 
+          data: {   },
+          ui: { type: "table", 
+          uiData: JSON.stringify({ columns: [
+          { key: "name", header: "Name", type: "text", width: "30%" },
+          { key: "data", header: "tips", type: "text", width: "70%" }
+          ],
+          rows: [
+          { "name": "Step 1: Defining Your Vision", "data": "Decide on your genre, message, and target audience. Are you aiming for pop, indie, hip-hop, etc.? What themes or messages do you want to express?" },
+          { "name": "Step 2: Conceptualizing the Project", "data": "Choose whether you're creating a single, EP, or album. What is the mood or tone of your music? Think about track count, overall flow, and themes." },
+          { "name": "Step 3: Writing & Production", "data": "Consider if you're writing the music yourself or collaborating. Determine the instruments, sounds, and artists you're inspired by." },
+          { "name": "Step 4: Recording & Mixing", "data": "Decide if you'll be recording at home or in a studio. Will you need a producer or mixing engineer? Plan out your equipment and software." },
+          { "name": "Step 5: Visuals & Branding", "data": "Think about the imagery, album cover, and social media presence. How do you want to present yourself and your music visually?" },
+          { "name": "Step 6: Release & Promotion", "data": "Decide on your release platforms (Spotify, SoundCloud, etc.). Plan your promotional strategy: social media, live performances, collaborations, etc." }     ]
+             })
+          }
+          };
+    }
+};
 const giveMusicRecommendations: ToolConfig = {
   id: "give-similar-music-recommendations",
   name: "give me music recommendations",
@@ -82,9 +123,9 @@ const giveMusicRecommendations: ToolConfig = {
       data: { },
       ui: {  }
     };
-  },
+  }
 };
-const getMusicTagsFromWav: ToolConfig = {
+const getMusicTagsFromWav: ToolConfig = {//rename later
   id: "get-music-tags",
   name: "Describe this music",
   description: "Describe and tags the music to genres, emotions, places, and themes",
@@ -96,7 +137,7 @@ const getMusicTagsFromWav: ToolConfig = {
     .describe("Input parameters for the music analysis"),
   output: z
     .any()
-    .describe("Tags to Describe the Music"),
+    .describe(""), // first process of the instance back
   pricing: { pricePerUse: 0, currency: "USD" },
   handler: async ({ WAVFile, Title }, agentInfo) => {
     console.log(
@@ -113,15 +154,26 @@ const getMusicTagsFromWav: ToolConfig = {
         Tags : analysis
       },
       ui: {
-        type: "card",
-        uiData: JSON.stringify({
-          title: "Tags",
-          content: analysis
-        })
-      }
-    };
-  },
-};
+            type: "imageCard",
+            uiData: JSON.stringify({
+              title: "Mountain Landscape",
+              description: "Beautiful mountain vista at sunset",
+              imageUrl: "https://example.com/mountain.jpg",
+              imageAlt: "Mountain sunset",
+              aspectRatio: "video",
+              actions: [
+                {
+                  text: "View Full Size",
+                  url: "https://example.com/mountain-full.jpg",
+                  variant: "default"
+                }
+              ],
+              overlay: false
+            })
+          }
+  };
+  }
+}
 const describeMusicFromLyrics: ToolConfig = {
   id: "describe-music-from-lyrics",
   name: "Describe this music from the lyrics",
@@ -132,8 +184,8 @@ const describeMusicFromLyrics: ToolConfig = {
     })
     .describe("Input parameters for the music analysis"),
   output: z
-    .any()
-    .describe("Tags to Describe the Music"),
+    .any().describe("Tags to Describe the Music"),
+
   pricing: { pricePerUse: 0, currency: "USD" },
   handler: async ({ Lyrics }, agentInfo) => {
     console.log(
@@ -213,7 +265,7 @@ const dainService = defineDAINService({
   identity: {
     apiKey: process.env.DAIN_API_KEY,
   },
-  tools: [getMusicTagsFromWav,displayImageForMusicFile, giveMusicRecommendations, describeMusicFromLyrics],
+  tools: [getMusicTagsFromWav,displayImageForMusicFile, giveMusicRecommendations, describeMusicFromLyrics, CreativeProcessWorkshoping]
 });
 
 dainService.startNode({ port: 2022 }).then(() => {
