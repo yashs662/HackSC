@@ -2,7 +2,7 @@ import logging
 from flask import Flask, request, jsonify, render_template_string
 from pyngrok import ngrok
 from diffusers import DiffusionPipeline
-from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer
+from transformers import VisionEncoderDecoderModel, ViTImageProcessor, AutoTokenizer, AutoModelForCausalLM
 import torch
 from PIL import Image
 import io
@@ -41,6 +41,17 @@ except Exception as e:
     logger.error(f"Error loading image captioning model: {e}")
     raise
 
+# Initialize the GPT-2 model for prompt transformation
+try:
+    logger.info("Loading GPT-2 model for prompt transformation...")
+    gpt_model = AutoModelForCausalLM.from_pretrained("gpt2")
+    gpt_tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    gpt_model.to(device)
+    logger.info("GPT-2 model loaded successfully.")
+except Exception as e:
+    logger.error(f"Error loading GPT-2 model: {e}")
+    raise
+
 # HTML template for the web interface
 html_template = '''
 <!DOCTYPE html>
@@ -71,11 +82,18 @@ def generate():
         if not prompt:
             return jsonify({"error": "Please provide a prompt."}), 400
 
-        logger.info(f"Received prompt: {prompt}")
+        logger.info(f"Received original prompt: {prompt}")
 
-        # Generate the image
+        # Transform the prompt using the GPT-2 model
+        inputs = gpt_tokenizer.encode(prompt, return_tensors="pt").to(device)
+        outputs = gpt_model.generate(inputs, max_length=1000, num_return_sequences=1, no_repeat_ngram_size=2)
+        transformed_prompt = gpt_tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+
+        logger.info(f"Transformed prompt: {transformed_prompt}")
+
+        # Generate the image using the transformed prompt
         with torch.autocast(device):
-            image = sd_pipeline(prompt).images[0]
+            image = sd_pipeline(transformed_prompt, height = 512, width = 512).images[0]
 
         # Caption the image
         image_for_caption = image.convert("RGB")
@@ -87,9 +105,9 @@ def generate():
 
         logger.info(f"Generated caption: {caption}")
 
-        # Convert image to base64
+        # Convert image to base64 with lower quality
         buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
+        image.save(buffered, format="PNG", quality=80)  # Adjust quality (0-100)
         img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
         # Return JSON response
@@ -101,7 +119,7 @@ def generate():
 if __name__ == '__main__':
     try:
         # Set ngrok authtoken
-        ngrok.set_auth_token("ngrokauthtoken")
+        ngrok.set_auth_token("2oe51PGMgAbYP4XK6fYJ9REjg5l_xN7W8s2Z9dsPMu6gqBBd")
 
         # Open an HTTP tunnel on the default port 5000
         public_url = ngrok.connect(5000)
